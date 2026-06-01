@@ -3,17 +3,21 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { extensionDir, listExtensionNames, readJSON, repoRoot } from "./lib/paths.mjs";
+import {
+  buildOutputDir,
+  extensionDir,
+  listExtensionNames,
+  readPackageManifest,
+  repoRoot,
+} from "./lib/paths.mjs";
 import { buildZip } from "./lib/zip.mjs";
 
-const EXCLUDED_DIRS = new Set([".git", "node_modules"]);
 const EXCLUDED_FILES = new Set([".DS_Store", "Thumbs.db"]);
 
 function collectFiles(dir, prefix, out) {
   const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1));
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      if (EXCLUDED_DIRS.has(entry.name)) continue;
       collectFiles(path.join(dir, entry.name), `${prefix}${entry.name}/`, out);
       continue;
     }
@@ -25,12 +29,19 @@ function collectFiles(dir, prefix, out) {
 
 export function packExtension(name) {
   const dir = extensionDir(name);
-  const manifest = readJSON(path.join(dir, "manifest.json"));
+  const { version } = readPackageManifest(dir);
+  // Ship only the Vite build output — the app runs `dist/`, and listing assets
+  // (icon, screenshots) are emitted there too. Source, node_modules,
+  // package.json, and the lockfile are not shipped.
+  const distDir = path.join(dir, buildOutputDir);
+  if (!fs.existsSync(distDir)) {
+    throw new Error(`${name}: '${buildOutputDir}/' not found — run \`node scripts/build.mjs ${name}\` first`);
+  }
   const files = [];
-  collectFiles(dir, `${name}/`, files);
+  collectFiles(distDir, `${name}/`, files);
   const zip = buildZip(files);
   const sha256 = crypto.createHash("sha256").update(zip).digest("hex");
-  return { name, version: manifest.version, zip, sha256, size: zip.length };
+  return { name, version, zip, sha256, size: zip.length };
 }
 
 function outDir() {

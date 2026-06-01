@@ -5,7 +5,7 @@ side of the footer status bar; click it to open a small popover with a live
 `HH:MM:SS` readout and three controls — **Start**, **Stop**, **Restart**. Click
 outside to dismiss.
 
-![Stopwatch popover open over the Muxy status bar](assets/screenshot-1.png)
+![Stopwatch popover open over the Muxy status bar](public/assets/screenshot-1.png)
 
 ## Controls
 
@@ -30,6 +30,21 @@ reopening the popover shows the correct time. There is no background process.
   updating roughly four times a second while running. It uses the injected
   `--muxy-*` theme variables and a transparent background so the native popover
   material shows through.
+
+## Building
+
+This extension is an npm + Vite project. The manifest lives under the `"muxy"`
+key in `package.json` (there is no `manifest.json`).
+
+```sh
+npm install
+npm run build   # emits the installable extension into dist/
+```
+
+`vite build` writes `dist/popovers/stopwatch.html` (with its CSS/JS bundled) and
+copies the listing assets from `public/assets/` to `dist/assets/`. The `dist/`
+directory is the installed extension, so all paths in the `"muxy"` block are
+resolved relative to it. Use `npm run dev` for a local dev server.
 
 ## License
 

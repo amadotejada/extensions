@@ -80,7 +80,7 @@ jobs:
               echo "::warning::skipping name with invalid characters: '$name'"
               continue
             fi
-            if [ ! -f "extensions/$name/manifest.json" ]; then
+            if [ ! -f "extensions/$name/package.json" ]; then
               echo "skip $name (removed)"
               continue
             fi
@@ -89,6 +89,12 @@ jobs:
           names="$(printf '%s' "$names" | sed 's/^ *//')"
           echo "names=$names" >> "$GITHUB_OUTPUT"
           echo "Publishing: ${names:-<none>}"
+
+      - name: Build changed extensions
+        if: steps.changed.outputs.names != ''
+        env:
+          NAMES: ${{ steps.changed.outputs.names }}
+        run: node scripts/build.mjs $NAMES
 
       - name: Validate changed extensions
         if: steps.changed.outputs.names != ''

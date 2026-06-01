@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { extensionDir, readJSON } from "./lib/paths.mjs";
+import { buildOutputDir, extensionDir, packageJSONPath, readPackageManifest } from "./lib/paths.mjs";
 import { packExtension } from "./pack.mjs";
 
 const UPLOAD_URL = process.env.MUXY_UPLOAD_URL || "https://muxy.app/api/extensions/upload";
@@ -49,19 +49,20 @@ function listingAsset(dir, field, relative) {
 }
 
 function collectListingAssets(name) {
-  const dir = extensionDir(name);
-  const market = readJSON(path.join(dir, "manifest.json")).marketplace ?? {};
+  // Listing assets live in the build output (Vite emits them into dist/).
+  const distDir = path.join(extensionDir(name), buildOutputDir);
+  const market = readPackageManifest(extensionDir(name)).muxy.marketplace ?? {};
   const assets = [];
-  if (market.icon) assets.push(listingAsset(dir, "icon", market.icon));
+  if (market.icon) assets.push(listingAsset(distDir, "icon", market.icon));
   (market.screenshots ?? []).forEach((shot, index) =>
-    assets.push(listingAsset(dir, `screenshot-${index}`, shot)),
+    assets.push(listingAsset(distDir, `screenshot-${index}`, shot)),
   );
   return assets;
 }
 
 function metadataFor(name, packed, assets) {
-  const manifest = readJSON(path.join(extensionDir(name), "manifest.json"));
-  const market = manifest.marketplace ?? {};
+  const { muxy } = readPackageManifest(extensionDir(name));
+  const market = muxy.marketplace ?? {};
   const icon = assets.find((asset) => asset.field === "icon");
   const screenshots = assets.filter((asset) => asset.field.startsWith("screenshot-"));
   return {
@@ -69,8 +70,8 @@ function metadataFor(name, packed, assets) {
     version: packed.version,
     sha256: packed.sha256,
     size: packed.size,
-    description: manifest.description ?? null,
-    permissions: manifest.permissions ?? [],
+    description: muxy.description ?? null,
+    permissions: muxy.permissions ?? [],
     author:
       market.author || market.github
         ? { name: market.author ?? null, github: market.github ?? null }
@@ -154,7 +155,7 @@ async function main() {
   }
 
   for (const name of names) {
-    if (!fs.existsSync(path.join(extensionDir(name), "manifest.json"))) {
+    if (!fs.existsSync(packageJSONPath(extensionDir(name)))) {
       console.log(`skip ${name} (removed)`);
       continue;
     }

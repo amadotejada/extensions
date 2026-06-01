@@ -8,6 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "build": "node scripts/build.mjs",
     "validate": "node scripts/validate.mjs",
     "pack": "node scripts/pack.mjs",
     "publish": "node scripts/publish.mjs"

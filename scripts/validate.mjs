@@ -4,11 +4,14 @@ import path from "node:path";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import {
+  buildOutputDir,
   extensionDir,
   extensionsDir,
   fetchSchema,
   listExtensionNames,
+  packageJSONPath,
   readJSON,
+  readPackageManifest,
   resolveInside,
 } from "./lib/paths.mjs";
 import { inspectIcon, inspectScreenshot } from "./lib/images.mjs";
@@ -181,26 +184,31 @@ const NETWORK_PATTERN = /\b(fetch|XMLHttpRequest|WebSocket|EventSource)\b/;
 const EVAL_PATTERN = /\b(eval|Function)\s*\(/;
 const MIN_MINIFIED_LINE = 2000;
 
+// Scan authored source only. The Vite build output and dependencies are not
+// reviewed source — a bundle legitimately has long/minified lines, so linting
+// it would be pure noise.
+const SKIP_SCAN_DIRS = new Set(["node_modules", buildOutputDir]);
+
 function collectScriptFiles(dir) {
   const files = [];
   const walk = (current) => {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      if (entry.name.startsWith(".") || SKIP_SCAN_DIRS.has(entry.name)) continue;
       const full = path.join(current, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (/\.(js|mjs|html)$/.test(entry.name)) files.push(full);
+      else if (/\.(js|mjs|ts|jsx|tsx|vue|svelte|html)$/.test(entry.name)) files.push(full);
     }
   };
   walk(dir);
   return files;
 }
 
-function securityLint(report, dir, manifest) {
-  const permissions = new Set(manifest.permissions ?? []);
+function securityLint(report, dir, muxy) {
+  const permissions = new Set(muxy.permissions ?? []);
   if (permissions.has("commands:exec")) {
     report.warn("declares commands:exec — reviewer: confirm shell usage is justified and safe");
   }
-  const usesRunScript = (manifest.commands ?? []).some((c) => c.action?.kind === "runScript");
+  const usesRunScript = (muxy.commands ?? []).some((c) => c.action?.kind === "runScript");
   if (usesRunScript && !permissions.has("commands:run-script")) {
     report.warn("has a runScript command but does not declare commands:run-script — it will not run");
   }
@@ -226,20 +234,26 @@ function securityLint(report, dir, manifest) {
 function validateExtension(name) {
   const report = new Report(name);
   const dir = extensionDir(name);
-  const manifestPath = path.join(dir, "manifest.json");
+  const manifestPath = packageJSONPath(dir);
 
   if (!fs.existsSync(manifestPath)) {
-    report.error("manifest.json not found");
+    report.error("package.json not found");
     return report;
   }
 
-  let manifest;
+  let pkg;
   try {
-    manifest = readJSON(manifestPath);
+    pkg = readJSON(manifestPath);
   } catch (err) {
-    report.error(`manifest.json is not valid JSON: ${err.message}`);
+    report.error(`package.json is not valid JSON: ${err.message}`);
     return report;
   }
+
+  // The schema (fetched from muxy-app/muxy) describes the Muxy manifest body:
+  // name + version + the manifest fields. Validate the flattened view (muxy
+  // fields merged with the top-level name/version) against it; the npm-level
+  // requirements (build script, lockfile) are enforced in code below.
+  const { manifest, muxy } = readPackageManifest(dir);
 
   if (!validateManifest(manifest)) {
     for (const err of validateManifest.errors ?? []) {
@@ -248,19 +262,34 @@ function validateExtension(name) {
     return report;
   }
 
-  if (manifest.name !== name) {
-    report.error(`manifest name '${manifest.name}' must equal directory name '${name}'`);
+  if (!pkg.scripts || typeof pkg.scripts.build !== "string" || pkg.scripts.build.length === 0) {
+    report.error("package.json must define a `build` script (e.g. \"vite build\")");
+  }
+  if (!fs.existsSync(path.join(dir, "package-lock.json"))) {
+    report.error("package-lock.json is required (run `npm install` and commit the lockfile)");
+  }
+
+  if (pkg.name !== name) {
+    report.error(`package name '${pkg.name}' must equal directory name '${name}'`);
   }
 
   if (!fs.existsSync(path.join(dir, "README.md"))) {
     report.error("README.md is required for every extension");
   }
 
-  checkResources(report, dir, manifest);
-  checkListing(report, dir, manifest);
+  // Manifest-referenced resources and listing assets resolve against the build
+  // output. They exist only after a build, so this assumes `dist/` is present
+  // (CI runs scripts/build.mjs first).
+  const distDir = path.join(dir, buildOutputDir);
+  if (!fs.existsSync(distDir)) {
+    report.error(`'${buildOutputDir}/' not found — run \`node scripts/build.mjs ${name}\` before validating`);
+  } else {
+    checkResources(report, distDir, manifest);
+    checkListing(report, distDir, manifest);
+  }
   checkCrossReferences(report, manifest);
   checkDuplicateIDs(report, manifest);
-  securityLint(report, dir, manifest);
+  securityLint(report, dir, muxy);
 
   return report;
 }

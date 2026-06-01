@@ -28,6 +28,9 @@ jobs:
       - name: Install tooling
         run: npm ci
 
+      - name: Build all extensions
+        run: node scripts/build.mjs
+
       - name: Validate all extensions
         run: node scripts/validate.mjs
 
