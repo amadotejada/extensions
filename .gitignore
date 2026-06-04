@@ -7,3 +7,4 @@ release/
 minisign.key
 *.key
 *.log
+extensions/demo-*

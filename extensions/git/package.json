@@ -12,6 +12,7 @@
   "muxy": {
     "$schema": "https://raw.githubusercontent.com/muxy-app/muxy/main/docs/extensions/schema/manifest.schema.json",
     "description": "Official Git extension for Muxy",
+    "background": "background.js",
     "permissions": [
       "git:read",
       "git:write",
@@ -118,7 +119,8 @@
         },
         "tooltip": "Switch branch",
         "side": "left",
-        "command": "open-branch"
+        "command": "open-branch",
+        "visible": false
       },
       {
         "id": "pr-info",
@@ -127,14 +129,15 @@
         },
         "tooltip": "Current pull request",
         "side": "left",
-        "command": "open-pr-info"
+        "command": "open-pr-info",
+        "visible": false
       }
     ]
   },
   "name": "git",
   "private": true,
   "scripts": {
-    "build": "tsc --noEmit && vite build && vite build --config vite.diff-viewer.config.ts",
+    "build": "tsc --noEmit && vite build && vite build --config vite.diff-viewer.config.ts && vite build --config vite.background.config.ts",
     "build:surfaces": "vite build",
     "dev": "vite",
     "typecheck": "tsc --noEmit"

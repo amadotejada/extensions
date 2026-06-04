@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { GitPullRequest, Loader2 } from "lucide-react";
 import { alert_error } from "@/lib/git";
-import { cleanup_branch } from "@/lib/git-cleanup";
+import { cleanup_branch, is_on_worktree, remove_active_worktree } from "@/lib/git-cleanup";
 import { merge_pr, close_pr, type MergeMethod } from "@/lib/git-prs";
-import { CurrentPrContent } from "@/components/current-pr-content";
+import { read_pr_cache, write_pr_cache, clear_pr_cache } from "@/lib/pr-cache";
+import { CurrentPrContent, type PrAction } from "@/components/current-pr-content";
 
 type State =
   | { kind: "loading" }
@@ -12,24 +13,33 @@ type State =
 
 export function PrInfoPanel() {
   const [state, set_state] = useState<State>({ kind: "loading" });
-  const [busy, set_busy] = useState(false);
+  const [pending, set_pending] = useState<PrAction | null>(null);
+  const [refreshing, set_refreshing] = useState(false);
 
   const load = useCallback(async () => {
+    const cached = await read_pr_cache();
+    if (cached) set_state({ kind: "ready", ...cached });
+
+    set_refreshing(true);
     try {
       const s = await muxy.git.status();
-      set_state(
-        s.pullRequest
-          ? {
-              kind: "ready",
-              pr: s.pullRequest,
-              branch: s.branch || null,
-              defaultBranch: s.defaultBranch,
-              dirty: s.stagedFiles.length > 0 || s.unstagedFiles.length > 0,
-            }
-          : { kind: "none" },
-      );
+      if (s.pullRequest) {
+        const info = {
+          pr: s.pullRequest,
+          branch: s.branch || null,
+          defaultBranch: s.defaultBranch,
+          dirty: s.stagedFiles.length > 0 || s.unstagedFiles.length > 0,
+        };
+        await write_pr_cache(info);
+        set_state({ kind: "ready", ...info });
+      } else {
+        await clear_pr_cache();
+        set_state({ kind: "none" });
+      }
     } catch {
-      set_state({ kind: "none" });
+      if (!cached) set_state({ kind: "none" });
+    } finally {
+      set_refreshing(false);
     }
   }, []);
 
@@ -44,42 +54,51 @@ export function PrInfoPanel() {
   }, [load]);
 
   const merge = useCallback(async (number: number, method: MergeMethod, deleteBranch: boolean) => {
-    set_busy(true);
+    set_pending(method);
     try {
-      await merge_pr(number, method, deleteBranch);
+      const onWorktree = deleteBranch && (await is_on_worktree());
+      await merge_pr(number, method, deleteBranch && !onWorktree);
+      if (onWorktree) {
+        const branch = state.kind === "ready" ? state.branch : null;
+        await remove_active_worktree(branch, false);
+      }
+      await clear_pr_cache();
       return true;
     } catch (err) {
       await alert_error(`Could not merge PR #${number}`, err);
       return false;
     } finally {
-      set_busy(false);
+      set_pending(null);
     }
-  }, []);
+  }, [state]);
 
   const close = useCallback(async (number: number) => {
-    set_busy(true);
+    set_pending("close");
     try {
       await close_pr(number);
+      await clear_pr_cache();
       return true;
     } catch (err) {
       await alert_error(`Could not close PR #${number}`, err);
       return false;
     } finally {
-      set_busy(false);
+      set_pending(null);
     }
   }, []);
 
   const cleanup = useCallback(async () => {
     if (state.kind !== "ready") return false;
-    set_busy(true);
+    set_pending("cleanup");
     try {
-      return await cleanup_branch({
+      const ok = await cleanup_branch({
         branch: state.branch,
         defaultBranch: state.defaultBranch,
         dirty: state.dirty,
       });
+      if (ok) await clear_pr_cache();
+      return ok;
     } finally {
-      set_busy(false);
+      set_pending(null);
     }
   }, [state]);
 
@@ -98,7 +117,8 @@ export function PrInfoPanel() {
       ) : (
         <CurrentPrContent
           pr={state.pr}
-          busy={busy}
+          pending={pending}
+          refreshing={refreshing}
           onMerge={(method, deleteBranch) => merge(state.pr.number, method, deleteBranch)}
           onClose={close}
           onCleanup={cleanup}

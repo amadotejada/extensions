@@ -204,7 +204,14 @@ interface MuxyBridge {
     close(): Promise<void>;
   };
   statusbar: {
-    set(opts: { id: string; icon?: unknown; text?: string | null }): Promise<void>;
+    set(opts: { id: string; icon?: unknown; text?: string | null; visible?: boolean }): Promise<void>;
+    show(id: string): Promise<void>;
+    hide(id: string): Promise<void>;
+  };
+  topbar: {
+    set(opts: { id: string; icon?: unknown; visible?: boolean }): Promise<void>;
+    show(id: string): Promise<void>;
+    hide(id: string): Promise<void>;
   };
   git: MuxyGit;
   dialog: {

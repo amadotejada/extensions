@@ -6,12 +6,38 @@ interface CleanupTarget {
   dirty: boolean;
 }
 
+export async function active_worktree(): Promise<MuxyWorktree | undefined> {
+  const worktrees = await muxy.worktrees.list().catch(() => [] as MuxyWorktree[]);
+  return worktrees.find((w) => w.isActive) ?? worktrees.find((w) => w.isPrimary);
+}
+
+export async function is_on_worktree(): Promise<boolean> {
+  const active = await active_worktree();
+  return !!active && !active.isPrimary;
+}
+
+export async function remove_active_worktree(branch: string | null, force: boolean): Promise<void> {
+  const worktrees = await muxy.worktrees.list().catch(() => [] as MuxyWorktree[]);
+  const active = worktrees.find((w) => w.isActive) ?? worktrees.find((w) => w.isPrimary);
+  if (!active || active.isPrimary) return;
+
+  const replacement =
+    worktrees.find((w) => w.isPrimary && w.id !== active.id) ??
+    worktrees.find((w) => w.id !== active.id);
+  if (replacement) {
+    await muxy.git.worktree
+      .switchTo({ identifier: replacement.path })
+      .catch(() => muxy.worktrees.switchTo(replacement.path));
+  }
+  await muxy.git.worktree.remove({ path: active.path, force });
+  if (branch) await muxy.git.branch.deleteRemote({ branch }).catch(() => undefined);
+  await muxy.worktrees.refresh();
+}
+
 export async function cleanup_branch({ branch, defaultBranch, dirty }: CleanupTarget): Promise<boolean> {
   if (!branch) return false;
 
-  const worktrees = await muxy.worktrees.list().catch(() => [] as MuxyWorktree[]);
-  const active = worktrees.find((w) => w.isActive) ?? worktrees.find((w) => w.isPrimary);
-  const isWorktree = !!active && !active.isPrimary;
+  const isWorktree = await is_on_worktree();
 
   const message = isWorktree
     ? `This removes the worktree and deletes branch "${branch}".${
@@ -29,18 +55,8 @@ export async function cleanup_branch({ branch, defaultBranch, dirty }: CleanupTa
   if (!ok) return false;
 
   try {
-    if (isWorktree && active) {
-      const replacement =
-        worktrees.find((w) => w.isPrimary && w.id !== active.id) ??
-        worktrees.find((w) => w.id !== active.id);
-      if (replacement) {
-        await muxy.git.worktree
-          .switchTo({ identifier: replacement.path })
-          .catch(() => muxy.worktrees.switchTo(replacement.path));
-      }
-      await muxy.git.worktree.remove({ path: active.path, force: dirty });
-      await muxy.git.branch.deleteRemote({ branch }).catch(() => undefined);
-      await muxy.worktrees.refresh();
+    if (isWorktree) {
+      await remove_active_worktree(branch, dirty);
     } else {
       if (defaultBranch && defaultBranch !== branch) {
         await muxy.git.branch.switchTo({ branch: defaultBranch });

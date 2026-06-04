@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, GitPullRequest, Loader2 } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { branch_name_from_title } from "@/lib/branch-name";
 import type { CreatePrInput } from "@/hooks/use-create-pr";
 
 interface CreatePrFormProps {
@@ -14,11 +15,22 @@ export function CreatePrForm({ baseBranch, onSubmit }: CreatePrFormProps) {
   const [title, set_title] = useState("");
   const [body, set_body] = useState("");
   const [newBranch, set_new_branch] = useState("");
+  const [branchEdited, set_branch_edited] = useState(false);
   const [draft, set_draft] = useState(false);
   const [advanced, set_advanced] = useState(false);
   const [busy, set_busy] = useState(false);
 
   const disabled = busy || title.trim() === "";
+
+  function on_title_change(value: string) {
+    set_title(value);
+    if (!branchEdited) set_new_branch(value.trim() ? branch_name_from_title(value) : "");
+  }
+
+  function on_branch_change(value: string) {
+    set_branch_edited(true);
+    set_new_branch(value);
+  }
 
   async function submit() {
     if (disabled) return;
@@ -42,7 +54,7 @@ export function CreatePrForm({ baseBranch, onSubmit }: CreatePrFormProps) {
         rows={1}
         placeholder={baseBranch ? `Pull request title (→ ${baseBranch})` : "Pull request title"}
         value={title}
-        onChange={(e) => set_title(e.target.value)}
+        onChange={(e) => on_title_change(e.target.value)}
         className="min-h-[32px] text-[12px]"
       />
       <Textarea
@@ -66,7 +78,7 @@ export function CreatePrForm({ baseBranch, onSubmit }: CreatePrFormProps) {
           <Input
             placeholder="New branch name (optional)"
             value={newBranch}
-            onChange={(e) => set_new_branch(e.target.value)}
+            onChange={(e) => on_branch_change(e.target.value)}
             className="font-mono text-[12px]"
           />
           <label className="flex items-center gap-2 text-[11px] text-muted-foreground">

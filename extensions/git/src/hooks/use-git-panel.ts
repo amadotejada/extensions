@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { try_action, to_view_status, active_worktree_path } from "@/lib/git";
-import { sync_status_bar } from "@/lib/status-bar";
 import type { GitStatus } from "@/lib/git-status";
 
 export type RepoState =
@@ -146,10 +145,6 @@ export function use_git_panel() {
     },
     [refresh],
   );
-
-  useEffect(() => {
-    sync_status_bar(state.kind === "ready" ? state.status : null);
-  }, [state]);
 
   useEffect(() => {
     void refresh();

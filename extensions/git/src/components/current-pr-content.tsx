@@ -1,34 +1,43 @@
-import { useState } from "react";
 import { ExternalLink, GitMerge, Loader2, Trash2, XCircle } from "lucide-react";
-import { open_url } from "@/lib/git";
+import { confirm_action, open_url } from "@/lib/git";
 import { pr_state, type MergeMethod } from "@/lib/git-prs";
 import { PrStateIcon } from "./pr-state-icon";
 
+export type PrAction = MergeMethod | "close" | "cleanup";
+
 interface CurrentPrContentProps {
   pr: MuxyGitPR;
-  busy: boolean;
+  pending: PrAction | null;
+  refreshing?: boolean;
   onMerge: (method: MergeMethod, deleteBranch: boolean) => Promise<boolean>;
   onClose: (number: number) => Promise<boolean>;
   onCleanup: () => Promise<boolean>;
   onDone?: () => void;
 }
 
-type Confirm = { kind: "none" } | { kind: "close" };
-
 export function CurrentPrContent({
   pr,
-  busy,
+  pending,
+  refreshing,
   onMerge,
   onClose,
   onCleanup,
   onDone,
 }: CurrentPrContentProps) {
-  const [confirm, set_confirm] = useState<Confirm>({ kind: "none" });
+  const busy = pending !== null;
 
   async function run(action: Promise<boolean>) {
     const ok = await action;
-    set_confirm({ kind: "none" });
     if (ok) onDone?.();
+  }
+
+  async function confirm_close() {
+    const ok = await confirm_action({
+      title: `Close PR #${pr.number}?`,
+      message: `This closes pull request #${pr.number} without merging it.`,
+      confirmLabel: "Close PR",
+    });
+    if (ok) void run(onClose(pr.number));
   }
 
   return (
@@ -37,18 +46,23 @@ export function CurrentPrContent({
         <PrStateIcon pr={pr} size={13} />
         <span className="font-mono text-[12px] font-semibold text-foreground">#{pr.number}</span>
         <span className="text-[11px] text-muted-foreground">{state_label(pr)}</span>
+        {refreshing && (
+          <Loader2 size={11} className="animate-spin text-muted-foreground" aria-label="Refreshing" />
+        )}
         <div className="ml-auto flex items-center gap-0.5">
           <IconAction
             icon={XCircle}
             title="Close PR"
             disabled={busy || pr_state(pr) !== "open"}
+            loading={pending === "close"}
             tone="danger"
-            onClick={() => set_confirm({ kind: "close" })}
+            onClick={() => void confirm_close()}
           />
           <IconAction
             icon={Trash2}
             title="Clean up branch"
             disabled={busy}
+            loading={pending === "cleanup"}
             onClick={() => void run(onCleanup())}
           />
           <IconAction icon={ExternalLink} title="View on GitHub" onClick={() => open_url(pr.url)} />
@@ -58,15 +72,7 @@ export function CurrentPrContent({
       <Row label="Mergeable" value={mergeable_label(pr)} tone={mergeable_tone(pr)} />
       <ChecksRow checks={pr.checks} />
 
-      {confirm.kind === "close" ? (
-        <ConfirmClose
-          number={pr.number}
-          onCancel={() => set_confirm({ kind: "none" })}
-          onConfirm={() => void run(onClose(pr.number))}
-        />
-      ) : (
-        <Actions pr={pr} busy={busy} onMerge={(method) => void run(onMerge(method, true))} />
-      )}
+      <Actions pr={pr} pending={pending} onMerge={(method) => void run(onMerge(method, true))} />
     </div>
   );
 }
@@ -75,12 +81,14 @@ function IconAction({
   icon: Icon,
   title,
   disabled,
+  loading,
   tone = "default",
   onClick,
 }: {
   icon: typeof XCircle;
   title: string;
   disabled?: boolean;
+  loading?: boolean;
   tone?: "default" | "danger";
   onClick: () => void;
 }) {
@@ -93,29 +101,24 @@ function IconAction({
       onClick={onClick}
       className={`flex size-6 items-center justify-center rounded text-muted-foreground outline-none transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40 ${hover}`}
     >
-      <Icon size={13} strokeWidth={2} />
+      {loading ? (
+        <Loader2 size={13} strokeWidth={2} className="animate-spin" />
+      ) : (
+        <Icon size={13} strokeWidth={2} />
+      )}
     </button>
   );
 }
 
 function Actions({
   pr,
-  busy,
+  pending,
   onMerge,
 }: {
   pr: MuxyGitPR;
-  busy: boolean;
+  pending: PrAction | null;
   onMerge: (method: MergeMethod) => void;
 }) {
-  if (busy) {
-    return (
-      <span className="mt-1 flex h-7 items-center justify-center gap-2 text-[11px] text-muted-foreground">
-        <Loader2 size={13} className="animate-spin" />
-        Working…
-      </span>
-    );
-  }
-
   const state = pr_state(pr);
   if (state !== "open") {
     return (
@@ -126,11 +129,20 @@ function Actions({
   }
 
   const blockedReason = merge_blocked_reason(pr);
+  const busy = pending !== null;
+  const merge = (method: MergeMethod, label: string) => (
+    <MergeButton
+      label={label}
+      disabled={!!blockedReason || busy}
+      loading={pending === method}
+      onClick={() => onMerge(method)}
+    />
+  );
   return (
     <div className="mt-1 flex flex-col gap-1.5">
-      <MergeButton label="Merge commit" disabled={!!blockedReason} onClick={() => onMerge("merge")} />
-      <MergeButton label="Squash & merge" disabled={!!blockedReason} onClick={() => onMerge("squash")} />
-      <MergeButton label="Rebase & merge" disabled={!!blockedReason} onClick={() => onMerge("rebase")} />
+      {merge("merge", "Merge commit")}
+      {merge("squash", "Squash & merge")}
+      {merge("rebase", "Rebase & merge")}
       {blockedReason && (
         <span className="text-center text-[10px] text-muted-foreground">{blockedReason}</span>
       )}
@@ -149,10 +161,12 @@ function merge_blocked_reason(pr: MuxyGitPR): string | null {
 function MergeButton({
   label,
   disabled,
+  loading,
   onClick,
 }: {
   label: string;
   disabled: boolean;
+  loading?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -160,55 +174,13 @@ function MergeButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex h-7 items-center justify-center gap-1.5 rounded-md border border-border bg-muted text-[11px] font-medium text-foreground outline-none transition-colors hover:border-primary hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+      className={`flex h-7 items-center justify-center gap-1.5 rounded-md border border-border bg-muted text-[11px] font-medium text-foreground outline-none transition-colors hover:border-primary hover:bg-accent disabled:pointer-events-none ${loading ? "" : "disabled:opacity-50"}`}
     >
-      <GitMerge size={12} strokeWidth={2} />
-      {label}
-    </button>
-  );
-}
-
-function ConfirmClose({
-  number,
-  onCancel,
-  onConfirm,
-}: {
-  number: number;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div className="mt-1 flex flex-col gap-2 rounded-md border border-border p-2">
-      <span className="text-[11px] text-foreground">Close PR #{number}?</span>
-      <div className="flex gap-1.5">
-        <ConfirmButton label="Cancel" onClick={onCancel} />
-        <ConfirmButton label="Close PR" tone="danger" onClick={onConfirm} />
-      </div>
-    </div>
-  );
-}
-
-function ConfirmButton({
-  label,
-  tone = "default",
-  onClick,
-}: {
-  label: string;
-  tone?: "default" | "primary" | "danger";
-  onClick: () => void;
-}) {
-  const cls =
-    tone === "primary"
-      ? "bg-primary text-primary-foreground font-semibold hover:brightness-110"
-      : tone === "danger"
-        ? "border border-border text-diff-remove hover:bg-accent"
-        : "border border-border text-foreground hover:bg-accent";
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex h-7 flex-1 items-center justify-center rounded-md text-[11px] font-medium outline-none transition-colors ${cls}`}
-    >
+      {loading ? (
+        <Loader2 size={12} strokeWidth={2} className="animate-spin" />
+      ) : (
+        <GitMerge size={12} strokeWidth={2} />
+      )}
       {label}
     </button>
   );
