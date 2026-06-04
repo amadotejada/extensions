@@ -28,6 +28,15 @@
   --radius: 6px;
 }
 
+:root {
+  --lane-0: var(--muxy-accent);
+  --lane-1: var(--muxy-diff-add);
+  --lane-2: var(--muxy-diff-remove);
+  --lane-3: var(--muxy-diff-hunk);
+  --lane-4: var(--muxy-foreground-muted);
+  --lane-5: var(--muxy-foreground);
+}
+
 html,
 body,
 #root {

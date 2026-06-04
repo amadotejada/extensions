@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { try_action } from "@/lib/git";
 import { use_git_panel } from "@/hooks/use-git-panel";
+import { use_git_graph } from "@/hooks/use-git-graph";
 import { use_create_pr } from "@/hooks/use-create-pr";
 import { NoRepo } from "@/components/no-repo";
 import { LoadingOverlay } from "@/components/loading-overlay";
@@ -20,18 +21,38 @@ export function App() {
     commit,
     sync,
   } = use_git_panel();
+  const graph = use_git_graph();
   const create = use_create_pr(refresh);
   const [refreshing, set_refreshing] = useState(false);
+  const [message, set_message] = useState("");
+
+  const commit_and_refresh = async (msg: string) => {
+    const ok = await commit(msg);
+    if (ok) graph.refresh();
+    return ok;
+  };
+
+  const refresh_all = () => {
+    void refresh();
+    graph.refresh();
+  };
+
+  const sync_and_refresh = async (op: "push" | "pull") => {
+    const ok = await sync(op);
+    if (ok) graph.refresh();
+    return ok;
+  };
 
   useEffect(() => {
     const off = muxy.events.subscribe("command.refresh-scm", () => {
       set_refreshing(true);
+      graph.refresh();
       void Promise.all([refresh(), new Promise((r) => setTimeout(r, 400))]).finally(() =>
         set_refreshing(false),
       );
     });
     return () => off?.();
-  }, [refresh]);
+  }, [refresh, graph]);
 
   async function init() {
     if (await try_action(() => muxy.git.init(), "Could not initialize repository")) {
@@ -60,9 +81,13 @@ export function App() {
         unstage_all={unstage_all}
         discard={discard}
         discard_all={discard_all}
-        commit={commit}
-        sync={sync}
+        commit={commit_and_refresh}
+        sync={sync_and_refresh}
         create_pr={create}
+        graph={graph}
+        message={message}
+        on_message={set_message}
+        refresh_all={refresh_all}
       />
     </div>
   );

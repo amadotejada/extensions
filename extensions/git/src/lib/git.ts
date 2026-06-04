@@ -27,6 +27,23 @@ export async function open_diff(focusPath: string): Promise<void> {
   }
 }
 
+export async function open_commit_diff(hash: string, shortHash: string): Promise<void> {
+  try {
+    const cwd = await active_worktree_path();
+    void muxy.tabs.open({
+      kind: "extensionWebView",
+      extension: {
+        id: muxy.extensionID,
+        tabType: "diff-viewer",
+        singleton: true,
+        data: { source: "commit", hash, shortHash, cwd },
+      },
+    });
+  } catch {
+    void 0;
+  }
+}
+
 export async function open_pr_diff(prNumber: number): Promise<void> {
   try {
     const cwd = await active_worktree_path();

@@ -431,8 +431,10 @@ async function renderPatch(patch: string, focusPath: string) {
 function diffData() {
   return (window.muxy?.data ?? {}) as {
     focusPath?: string;
-    source?: "pr";
+    source?: "pr" | "commit";
     prNumber?: number;
+    hash?: string;
+    shortHash?: string;
     cwd?: string;
   };
 }
@@ -457,6 +459,26 @@ async function loadGitDiff() {
         return;
       }
       await renderPatch(diff, data.focusPath ?? "");
+      return;
+    }
+
+    if (data.source === "commit" && data.hash) {
+      const label = data.shortHash || data.hash.slice(0, 7);
+      sourceLabelNode.textContent = `Commit ${label}`;
+      showLoading(`Loading diff for ${label}…`);
+      const res = await window.muxy.exec(
+        ["git", "show", "--format=", "--no-color", data.hash],
+        { cwd: project },
+      );
+      if (res.exitCode !== 0) {
+        clearDiff(res.stderr.trim() || "Could not load commit diff.");
+        return;
+      }
+      if (!res.stdout.trim()) {
+        clearDiff("This commit has no diff.");
+        return;
+      }
+      await renderPatch(res.stdout, data.focusPath ?? "");
       return;
     }
 

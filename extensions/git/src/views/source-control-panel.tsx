@@ -5,7 +5,9 @@ import { CommitBox } from "@/components/commit-box";
 import { CreatePrForm } from "@/components/create-pr-form";
 import { ModeToggle } from "@/components/mode-toggle";
 import { FileSection } from "@/components/file-section";
+import { GitGraphSection } from "@/components/git-graph-section";
 import { EmptyState } from "@/components/empty-state";
+import type { use_git_graph } from "@/hooks/use-git-graph";
 import { use_persistent_value } from "@/hooks/use-persistent-value";
 import type { PrimaryMode } from "@/components/commit-box";
 
@@ -20,6 +22,10 @@ interface SourceControlPanelProps {
   commit: (message: string) => Promise<boolean>;
   sync: (op: "push" | "pull") => Promise<boolean>;
   create_pr: (input: CreatePrInput) => Promise<boolean>;
+  graph: ReturnType<typeof use_git_graph>;
+  message: string;
+  on_message: (message: string) => void;
+  refresh_all: () => void;
 }
 
 export function SourceControlPanel({
@@ -33,6 +39,10 @@ export function SourceControlPanel({
   commit,
   sync,
   create_pr,
+  graph,
+  message,
+  on_message,
+  refresh_all,
 }: SourceControlPanelProps) {
   const clean = status.staged.length === 0 && status.unstaged.length === 0;
   const [mode, set_mode] = use_persistent_value<PrimaryMode>("muxy.git.commitMode", "commit");
@@ -68,6 +78,8 @@ export function SourceControlPanel({
         ) : (
           <CommitBox
             canCommit={status.staged.length > 0}
+            message={message}
+            onMessage={on_message}
             onCommit={commit}
             onPull={() => sync("pull")}
             onPush={() => sync("push")}
@@ -98,7 +110,15 @@ export function SourceControlPanel({
           onBulkDiscard={() => void discard_changes()}
           onOpen={open_diff}
         />
-        {clean && <EmptyState>No changes.</EmptyState>}
+        <GitGraphSection
+          rows={graph.rows}
+          hasMore={graph.hasMore}
+          loading={graph.loading}
+          onLoadMore={graph.load_more}
+          onPrefillMessage={on_message}
+          onRefresh={refresh_all}
+        />
+        {clean && graph.rows.length === 0 && <EmptyState>No changes.</EmptyState>}
       </main>
     </>
   );

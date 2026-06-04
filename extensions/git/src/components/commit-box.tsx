@@ -9,13 +9,14 @@ export type PrimaryMode = "commit" | "pr";
 
 interface CommitBoxProps {
   canCommit: boolean;
+  message: string;
+  onMessage: (message: string) => void;
   onCommit: (message: string) => Promise<boolean>;
   onPull: () => Promise<unknown>;
   onPush: () => Promise<unknown>;
 }
 
-export function CommitBox({ canCommit, onCommit, onPull, onPush }: CommitBoxProps) {
-  const [message, set_message] = useState("");
+export function CommitBox({ canCommit, message, onMessage, onCommit, onPull, onPush }: CommitBoxProps) {
   const [busy, set_busy] = useState<SyncOp | "commit" | null>(null);
   const commitDisabled = !canCommit || message.trim() === "" || busy !== null;
 
@@ -23,7 +24,7 @@ export function CommitBox({ canCommit, onCommit, onPull, onPush }: CommitBoxProp
     if (commitDisabled) return;
     set_busy("commit");
     try {
-      if (await onCommit(message.trim())) set_message("");
+      if (await onCommit(message.trim())) onMessage("");
     } finally {
       set_busy(null);
     }
@@ -45,7 +46,7 @@ export function CommitBox({ canCommit, onCommit, onPull, onPush }: CommitBoxProp
         rows={1}
         placeholder="Commit message (⌘↩ to commit on branch)"
         value={message}
-        onChange={(e) => set_message(e.target.value)}
+        onChange={(e) => onMessage(e.target.value)}
         onKeyDown={(e) => {
           if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
             e.preventDefault();
