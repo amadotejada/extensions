@@ -3,21 +3,15 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+
+# Serialise per-PR so rapid pushes don't race the delete-then-post step and
+# leave duplicate comments; only the latest push's review matters.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,6 +25,10 @@ jobs:
         with:
           fetch-depth: 1
 
+      # Claude only ANALYSES here: it reads the diff/files and writes its review to
+      # claude-review.md. It is given read-only `gh` (diff/view) and the Write tool,
+      # so it cannot post or push anything itself — posting is handled deterministically
+      # in the next step so we never pile up duplicate comments.
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
@@ -44,7 +42,9 @@ jobs:
 
             Muxy extensions are npm + Vite projects. The manifest is the "muxy" key in
             package.json; source lives in src/ and builds to dist/. Read the extension's
-            package.json and the muxy-extension skill guidance before judging.
+            package.json and the muxy-extension skill guidance before judging. Use
+            `gh pr diff ${{ github.event.pull_request.number }} --repo ${{ github.repository }}`
+            to see what changed.
 
             Evaluate ONLY these checks, each as a single pass/fail line:
 
@@ -60,10 +60,12 @@ jobs:
             5. Naming — the extension name is simple kebab-case with NO "muxy-" or
                "extension-" prefix, and screenshots follow the standard naming convention.
 
-            Then post EXACTLY ONE PR comment using
-            `gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body "..."`
-            in this format — nothing else, no prose, no inline comments.
-            Keep each line to one short sentence:
+            Do NOT post a PR comment and do NOT run any git/gh write commands. Instead,
+            WRITE your review to the file `claude-review.md` in the repository root using
+            the Write tool. The file must start with the exact marker line below, then a
+            blank line, then the review in this format — nothing else, no prose:
+
+            <!-- muxy-claude-review -->
 
             **Extension review** — <New extension | Update vX.Y.Z>
 
@@ -75,7 +77,44 @@ jobs:
             <one short overall line: ✅ ready to merge / ⚠️ needs changes>
 
             Use [x] for pass and [ ] for fail. Omit the "New vs Update" row from the
-            checkbox list since it's already in the header. Be terse — the whole comment
+            checkbox list since it's already in the header. Be terse — the whole review
             should fit in a few lines.
-          claude_args: '--allowed-tools "Bash(gh:*),Read,Glob,Grep"'
+          claude_args: '--allowed-tools "Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep,Write"'
 
+      # Deterministic post: delete our own previous review comment(s), then post the
+      # freshly written review so the latest one always lands at the bottom. Runs even
+      # if the review step reports failure, as long as a review file was produced.
+      - name: Replace previous review comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const marker = "<!-- muxy-claude-review -->";
+            const path = `${process.env.GITHUB_WORKSPACE}/claude-review.md`;
+
+            if (!fs.existsSync(path)) {
+              core.info("No claude-review.md produced; leaving any existing comment untouched.");
+              return;
+            }
+            const body = fs.readFileSync(path, "utf8").trim();
+            if (!body || !body.includes(marker)) {
+              core.info("Review file empty or missing marker; skipping comment.");
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 },
+            );
+            const mine = comments.filter(
+              (c) => c.user?.type === "Bot" && c.body?.includes(marker),
+            );
+            for (const c of mine) {
+              await github.rest.issues.deleteComment({ owner, repo, comment_id: c.id });
+            }
+
+            await github.rest.issues.createComment({ owner, repo, issue_number, body });
