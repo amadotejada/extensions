@@ -18,6 +18,8 @@ export function renderBranchSwitcher(app, status) {
         : null, icon("chevronDown", 12, "ml-auto text-muted-foreground", 2.5));
 }
 export function renderBranchTab(app, status) {
+    if (status.unstaged.length === 0)
+        app.resetChangesFilter();
     const fragment = document.createDocumentFragment();
     fragment.appendChild(h("section", { class: "flex flex-col gap-2 border-b border-border p-2.5" }, renderCommitBox(app, status)));
     const clean = status.staged.length === 0 && status.unstaged.length === 0;
@@ -34,6 +36,7 @@ export function renderBranchTab(app, status) {
         title: "Changes",
         entries: status.unstaged,
         staged: false,
+        searchable: true,
         bulkLabel: "Stage all",
         onBulk: () => void app.stageAll(),
         onAction: (path) => void app.stage(path),
@@ -120,6 +123,71 @@ async function runSync(app, op) {
         app.render();
     }
 }
+function renderSectionHeader(app, opts, open, toggle) {
+    const filterOpen = opts.searchable && app.changesFilterOpen;
+    const title = h("button", {
+        type: "button",
+        class: "flex min-w-0 items-center gap-1.5 text-muted-foreground hover:text-foreground",
+        onclick: toggle,
+    }, h("span", { class: "flex w-4 shrink-0 justify-center" }, icon("chevronDown", 12, cls("transition-transform", !open && "-rotate-90"), 2.2)), h("span", { class: "truncate text-[12px] font-semibold" }, opts.title));
+    const count = h("span", { class: "ml-1.5 rounded-full bg-muted-foreground px-1.5 py-px text-[10px] font-bold leading-none text-background" }, String(opts.entries.length));
+    const actions = h("div", { class: "ml-auto flex items-center text-muted-foreground" }, opts.searchable
+        ? smallIconButton(filterOpen ? "Hide search" : "Search files", filterOpen ? "x" : "search", () => app.toggleChangesFilter(), filterOpen ? "text-foreground" : "opacity-0 group-hover:opacity-100")
+        : null, h("div", { class: "flex items-center opacity-0 group-hover:opacity-100" }, opts.onBulkDiscard
+        ? smallIconButton("Discard all changes", "undo", () => opts.onBulkDiscard?.())
+        : null, smallIconButton(opts.bulkLabel, opts.staged ? "minus" : "plus", () => opts.onBulk())));
+    return h("header", { class: "group sticky top-0 z-10 flex h-[26px] shrink-0 items-center bg-background pl-2 pr-2" }, title, count, actions);
+}
+function renderSearchBar(app) {
+    const field = h("input", {
+        value: app.changesFilter,
+        placeholder: "Filter changed files...",
+        spellcheck: "false",
+        autocorrect: "off",
+        autocapitalize: "off",
+        autocomplete: "off",
+        "data-focus-key": "changes-filter",
+        class: "h-6 w-full rounded border border-input bg-secondary pl-2 pr-6 text-[11px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary",
+        oninput: (event) => {
+            app.setChangesFilter(event.target.value);
+            app.render();
+        },
+        onkeydown: (event) => {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                app.toggleChangesFilter();
+            }
+        },
+    });
+    setTimeout(() => {
+        if (document.activeElement?.getAttribute("data-focus-key") !== "changes-filter")
+            field.focus();
+    }, 0);
+    return h("div", { class: "relative shrink-0 px-2 pb-1.5" }, field, app.changesFilter
+        ? smallIconButton("Clear filter", "x", () => {
+            app.setChangesFilter("");
+            app.render();
+        }, "absolute right-3 top-1/2 -translate-y-1/2")
+        : null);
+}
+function renderFileList(entries, opts) {
+    if (entries.length === 0)
+        return h("div", { class: "px-4 py-4 text-center text-[12px] text-muted-foreground" }, "No matching files.");
+    return h("ul", { class: "divide-y divide-border" }, entries.map((entry) => fileRow(entry, {
+        staged: opts.staged,
+        onAction: opts.onAction,
+        onDiscard: opts.onDiscard,
+        onOpen: openDiff,
+    })));
+}
+function filterEntries(app, opts) {
+    if (!opts.searchable || !app.changesFilterOpen)
+        return opts.entries;
+    const term = app.changesFilter.trim().toLowerCase();
+    if (!term)
+        return opts.entries;
+    return opts.entries.filter((entry) => entry.path.toLowerCase().includes(term));
+}
 function renderFileSection(app, opts) {
     if (opts.entries.length === 0)
         return null;
@@ -129,20 +197,8 @@ function renderFileSection(app, opts) {
         writePref(key, open ? "false" : "true");
         app.render();
     };
-    return h("section", { class: "flex shrink-0 flex-col" }, h("header", { class: "group sticky top-0 z-10 flex h-[26px] shrink-0 items-center bg-background pl-2 pr-2" }, h("button", {
-        type: "button",
-        class: "flex min-w-0 items-center gap-1.5 text-muted-foreground hover:text-foreground",
-        onclick: toggle,
-    }, h("span", { class: "flex w-4 shrink-0 justify-center" }, icon("chevronDown", 12, cls("transition-transform", !open && "-rotate-90"), 2.2)), h("span", { class: "truncate text-[12px] font-semibold" }, opts.title)), h("span", { class: "ml-1.5 rounded-full bg-muted-foreground px-1.5 py-px text-[10px] font-bold leading-none text-background" }, String(opts.entries.length)), h("div", { class: "ml-auto flex items-center text-muted-foreground opacity-0 group-hover:opacity-100" }, opts.onBulkDiscard
-        ? smallIconButton("Discard all changes", "undo", () => opts.onBulkDiscard?.())
-        : null, smallIconButton(opts.bulkLabel, opts.staged ? "minus" : "plus", () => opts.onBulk()))), open
-        ? h("ul", { class: "divide-y divide-border" }, opts.entries.map((entry) => fileRow(entry, {
-            staged: opts.staged,
-            onAction: opts.onAction,
-            onDiscard: opts.onDiscard,
-            onOpen: openDiff,
-        })))
-        : null);
+    const searchOpen = opts.searchable && app.changesFilterOpen;
+    return h("section", { class: "flex shrink-0 flex-col" }, renderSectionHeader(app, opts, open, toggle), open && searchOpen ? renderSearchBar(app) : null, open ? renderFileList(filterEntries(app, opts), opts) : null);
 }
 async function discardOne(app, path) {
     const ok = await confirmAction({

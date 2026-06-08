@@ -51,6 +51,8 @@ export class GitPanelApp {
     refreshing = false;
     tab = readPref(TAB_KEY, "branch");
     message = "";
+    changesFilter = "";
+    changesFilterOpen = false;
     commitBusy = null;
     prPending = null;
     prFilter = readPref(FILTER_KEY, "open");
@@ -153,6 +155,19 @@ export class GitPanelApp {
     }
     setMessage(message) {
         this.message = message;
+    }
+    setChangesFilter(value) {
+        this.changesFilter = value;
+    }
+    toggleChangesFilter() {
+        this.changesFilterOpen = !this.changesFilterOpen;
+        if (!this.changesFilterOpen)
+            this.changesFilter = "";
+        this.render();
+    }
+    resetChangesFilter() {
+        this.changesFilterOpen = false;
+        this.changesFilter = "";
     }
     resetCreateForm() {
         this.createForm = emptyCreateForm();

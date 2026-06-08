@@ -111,7 +111,7 @@ function parsePorcelain(text) {
 
 export async function status(cwd) {
     const [porcelainText, unstagedStat, stagedStat, def] = await Promise.all([
-        tryRun(["git", "status", "--porcelain=v2", "--branch", "-z"], cwd).then((z) => z.replace(/\0/g, "\n")),
+        tryRun(["git", "status", "--porcelain=v2", "--branch", "--untracked-files=all", "-z"], cwd).then((z) => z.replace(/\0/g, "\n")),
         tryRun(["git", "diff", "--numstat"], cwd),
         tryRun(["git", "diff", "--cached", "--numstat"], cwd),
         defaultBranch(cwd),
