@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--muxy-background);
+  --color-foreground: var(--muxy-foreground);
+  --color-muted: var(--muxy-surface);
+  --color-muted-foreground: var(--muxy-foreground-muted);
+  --color-surface: var(--muxy-surface);
+  --color-primary: var(--muxy-accent);
+  --color-primary-foreground: var(--muxy-background);
+  --color-accent: var(--muxy-hover);
+  --color-accent-foreground: var(--muxy-foreground);
+  --color-border: var(--muxy-border);
+  --color-input: var(--muxy-border);
+  --color-ring: var(--muxy-accent);
+  --radius: 6px;
+}
+
+html,
+body {
+  margin: 0;
+  /* No min-height: the popover host resizes to fit the rendered content, so
+     html/body must be free to collapse to their content height. */
+}
+
+body {
+  overflow-x: hidden;
+  font: 13px -apple-system, "SF Pro", system-ui, sans-serif;
+  /* Popovers sit over native macOS popover material that is already
+     light/dark-aware, so the body stays transparent. */
+  background: transparent;
+  color: var(--muxy-foreground);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
